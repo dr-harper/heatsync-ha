@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to HeatSync",
+        "description": "{token_help}",
+        "data": {
+          "host": "Host",
+          "token": "API token"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate HeatSync",
+        "description": "The token for {host} was rejected. Generate a new one in the device's Settings → API token and paste it below.",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the device. Check the host and that it's powered on.",
+      "invalid_auth": "The API token was rejected. Generate a new one in the device's Settings → API token."
+    },
+    "abort": {
+      "already_configured": "This HeatSync device is already configured.",
+      "reauth_successful": "Re-authenticated successfully."
+    }
+  }
+}

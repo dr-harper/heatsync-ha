@@ -1,0 +1,53 @@
+[project]
+name = "heatsync-ha"
+version = "0.1.0"
+description = "Home Assistant custom integration for the HeatSync Samsung NASA controller"
+requires-python = ">=3.12"
+authors = [
+    { name = "Michael", email = "michael@heatgeek.com" },
+]
+license = { text = "MIT" }
+readme = "README.md"
+
+[project.optional-dependencies]
+dev = [
+    "homeassistant>=2024.10.0",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-homeassistant-custom-component>=0.13",
+    "mypy>=1.10",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",     # pycodestyle/pyflakes
+    "I",                # isort
+    "B",                # bugbear
+    "ASYNC",            # async best practices
+    "UP",               # pyupgrade
+    "RUF",              # ruff-specific
+]
+ignore = [
+    "E501",  # line length — ruff format handles this
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = "voluptuous"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
