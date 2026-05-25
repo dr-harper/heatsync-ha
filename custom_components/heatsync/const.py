@@ -10,9 +10,11 @@ CONF_HOST = "host"
 CONF_TOKEN = "token"
 
 # How often to poll /api/live. The device's own dashboard polls every
-# ~3 s; we go a touch slower (5 s) to be polite about the WiFi /
-# bus load. 5 s is fast enough for HA UI to feel responsive without
-# trampling the device.
+# ~3 s; we go a touch slower (5 s) to be polite about WiFi / bus load.
+# 5 s is fast enough for HA UI to feel responsive without trampling
+# the device. Sub-second push via SSE was prototyped + reverted (the
+# firmware's 4 MB hardware didn't have heap headroom); will return
+# when we move to the 8 MB AtomS3.
 UPDATE_INTERVAL = timedelta(seconds=5)
 
 # Default port — the device's WebServer always listens on 80.
