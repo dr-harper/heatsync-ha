@@ -4,10 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.water_heater import (
-    STATE_ECO,
-    STATE_HEAT_PUMP,
     STATE_OFF,
-    STATE_PERFORMANCE,
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
@@ -19,21 +16,24 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .coordinator import HeatSyncCoordinator
 from .entity import HeatSyncEntity
 
-# The device's modes (eco/standard/power/force) map onto HA's allowed
-# water_heater states. Standard ↔ heat_pump, Power ↔ performance,
-# Force ↔ performance (booster).
-_MODE_TO_HA = {
-    "eco":      STATE_ECO,
-    "standard": STATE_HEAT_PUMP,
-    "power":    STATE_PERFORMANCE,
-    "force":    STATE_PERFORMANCE,
-}
-_HA_TO_MODE = {
-    STATE_ECO:         "eco",
-    STATE_HEAT_PUMP:   "standard",
-    STATE_PERFORMANCE: "power",
-    STATE_OFF:         None,  # off = power off, not a mode
-}
+# Samsung's DHW mode names verbatim from the wired controller's UI.
+# HA's water_heater platform allows arbitrary mode strings — they show
+# up exactly as listed below in the dropdown. We don't map to HA's
+# built-in STATE_HEAT_PUMP / STATE_PERFORMANCE constants because those
+# rename "Standard" → "Heat pump" and "Power" → "Performance" in the
+# UI, which doesn't match what Samsung's own docs + wired remote
+# call them. Confusing for users cross-referencing.
+#
+# Note: not every unit supports all four modes — Samsung publishes
+# only what your model actually accepts via the bus. Selecting an
+# unsupported mode silently no-ops; the bus echo will show the unit
+# stayed on its previous mode.
+DHW_MODES = ["Eco", "Standard", "Power", "Force"]
+
+# Bus state is lowercase (the firmware lowercases on the MQTT publish
+# path). UI mode label is capitalised. This dict bridges the two.
+_BUS_TO_LABEL = {m.lower(): m for m in DHW_MODES}
+_LABEL_TO_BUS = {m: m.lower() for m in DHW_MODES}
 
 
 async def async_setup_entry(
@@ -57,7 +57,7 @@ class HeatSyncWaterHeater(HeatSyncEntity, WaterHeaterEntity):
         | WaterHeaterEntityFeature.OPERATION_MODE
         | WaterHeaterEntityFeature.ON_OFF
     )
-    _attr_operation_list = [STATE_OFF, STATE_ECO, STATE_HEAT_PUMP, STATE_PERFORMANCE]
+    _attr_operation_list = [STATE_OFF, *DHW_MODES]
     _attr_min_temp = 30
     _attr_max_temp = 65
 
@@ -77,7 +77,11 @@ class HeatSyncWaterHeater(HeatSyncEntity, WaterHeaterEntity):
     def current_operation(self) -> str | None:
         if not self.device.get("dhwPower"):
             return STATE_OFF
-        return _MODE_TO_HA.get(self.device.get("dhwMode") or "")
+        # Bus reports lowercase ("standard"); UI uses Samsung's
+        # capitalised label ("Standard"). Fall back to the raw value
+        # if it's an unrecognised mode rather than dropping it.
+        raw = self.device.get("dhwMode") or ""
+        return _BUS_TO_LABEL.get(raw, raw or None)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is None:
@@ -89,10 +93,10 @@ class HeatSyncWaterHeater(HeatSyncEntity, WaterHeaterEntity):
         if operation_mode == STATE_OFF:
             await self.coordinator.client.set_dhw_power(False)
         else:
-            mode = _HA_TO_MODE.get(operation_mode)
-            if mode is not None:
+            bus_mode = _LABEL_TO_BUS.get(operation_mode)
+            if bus_mode is not None:
                 await self.coordinator.client.set_dhw_power(True)
-                await self.coordinator.client.set_dhw_mode(mode)
+                await self.coordinator.client.set_dhw_mode(bus_mode)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self) -> None:
