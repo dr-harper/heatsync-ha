@@ -64,8 +64,10 @@ INDOOR_SENSORS: list[HSSensorDef] = [
     _t("Eva out",           "evaOut",       "indoor"),
     _t("Tank temp",         "tankTemp",     "indoor"),
     _t("Flow actual",       "flowActual",   "indoor"),
+    _t("Flow target",       "flowTarget",   "indoor"),
     _t("Water inlet",       "waterInlet",   "indoor"),
     _t("Water-law target",  "waterLawTarget","indoor"),
+    _t("Water-law offset",  "waterLawOffset","indoor"),
     HSSensorDef(
         name="Flow rate", field="flowRate", device_type="indoor",
         description=SensorEntityDescription(
@@ -94,6 +96,22 @@ INDOOR_SENSORS: list[HSSensorDef] = [
             native_unit_of_measurement=UnitOfPower.WATT,
         ),
     ),
+    HSSensorDef(
+        name="Pump PWM", field="pumpPwm", device_type="indoor",
+        description=SensorEntityDescription(
+            key="pumpPwm",
+            state_class=SensorStateClass.MEASUREMENT,
+            native_unit_of_measurement=PERCENTAGE,
+        ),
+    ),
+    HSSensorDef(
+        name="EEV (indoor)", field="eevIndoor", device_type="indoor",
+        description=SensorEntityDescription(
+            key="eevIndoor",
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,   # refrigerant detail, off by default
+        ),
+    ),
 ]
 
 # Outdoor-unit sensors (10.xx.xx) — the electrical + compressor side.
@@ -101,6 +119,8 @@ OUTDOOR_SENSORS: list[HSSensorDef] = [
     _t("Outdoor temp",    "outdoorTemp",     "outdoor"),
     _t("Discharge temp",  "dischargeTemp",   "outdoor"),
     _t("Suction temp",    "suctionTemp",     "outdoor"),
+    _t("High sat temp",   "highSatTemp",     "outdoor"),
+    _t("Low sat temp",    "lowSatTemp",      "outdoor"),
     HSSensorDef(
         name="Power", field="powerW", device_type="outdoor",
         description=SensorEntityDescription(
@@ -145,6 +165,24 @@ OUTDOOR_SENSORS: list[HSSensorDef] = [
             device_class=SensorDeviceClass.FREQUENCY,
             state_class=SensorStateClass.MEASUREMENT,
             native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        ),
+    ),
+    HSSensorDef(
+        name="Compressor freq target", field="compFreqTarget", device_type="outdoor",
+        description=SensorEntityDescription(
+            key="compFreqTarget",
+            device_class=SensorDeviceClass.FREQUENCY,
+            state_class=SensorStateClass.MEASUREMENT,
+            native_unit_of_measurement=UnitOfFrequency.HERTZ,
+            entity_registry_enabled_default=False,   # diagnostic, off by default
+        ),
+    ),
+    HSSensorDef(
+        name="EEV (outdoor)", field="eevMain", device_type="outdoor",
+        description=SensorEntityDescription(
+            key="eevMain",
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,
         ),
     ),
     HSSensorDef(
