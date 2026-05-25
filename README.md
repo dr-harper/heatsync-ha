@@ -38,15 +38,28 @@ All entities sit under a single "HeatSync" device card in HA's UI.
    (`heatsync.local`), HA will auto-discover it; otherwise enter the
    host (IP or `.local` name) and paste the token.
 
-## Polling cadence
+## Two transport paths — pick one
+
+HeatSync gives you two equally-valid ways to surface its data in HA.
+**Pick one — running both gives you duplicate entities.**
+
+| | You have an MQTT broker (e.g. HA's Mosquitto add-on) | You don't, or prefer not to |
+|---|---|---|
+| **Best path** | Skip this integration. Configure MQTT in HeatSync's `/config` page → HA's built-in MQTT integration auto-discovers ~30 entities under one HeatSync device card. Sub-second push (bus broadcast rate). | Install this integration via HACS (steps above). HTTP polling at 5 s, no broker needed. |
+| Setup friction | Configure MQTT broker once on both sides | One HACS install + paste a token |
+| Latency | < 1 s (push) | ~5 s (poll cadence) |
+| Where the entities come from | HA core's MQTT integration | This integration |
+
+The MQTT path is the **HA-idiomatic** way for embedded devices and is
+how the firmware was designed first. This integration exists for the
+"I don't want to run a broker" crowd. Both ship the same set of
+entities — climate, water_heater, sensors, etc.
+
+### Polling cadence (HTTP path)
 
 The integration polls `/api/live` every 5 s. Each entity reads from
-the shared poller — adding entities doesn't add HTTP load.
-
-If you want sub-second updates (e.g. for a real-time gauge), pair
-this integration with HeatSync's MQTT auto-discovery — the MQTT
-topics push as fast as the bus broadcasts (typically 500 ms per
-field). Both can coexist; HA will dedupe by `unique_id`.
+the shared poller — adding entities doesn't add HTTP load. Tunable in
+`const.py` if 5 s isn't right for your setup.
 
 ## Diagnostics
 
