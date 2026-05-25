@@ -18,6 +18,9 @@ prefer that path).
 | Heating boost, DHW boost | `button` | One-shot +1 °C / +5 °C for 1 hour |
 | Tank temp, Flow actual, Eva in/out, Water inlet, Flow rate, Humidity, Thermal power | `sensor` | Indoor unit |
 | Outdoor temp, Discharge / Suction temp, Power, Energy, Current, Voltage, Compressor freq, Fan RPM, Cycles per hour, Error code | `sensor` | Outdoor unit |
+| Energy today, Cost today, Tariff rate, Tariff bucket, Carbon intensity | `sensor` | Today's running totals |
+| Energy today (heating / hot water / defrost / standby) | `sensor` | Per-mode kWh split — opt-in |
+| Energy yesterday, COP yesterday, Outdoor avg yesterday | `sensor` | Yesterday's stable summary |
 | Water pump, Compressor, Fault | `binary_sensor` | Running flags |
 
 All entities sit under a single "HeatSync" device card in HA's UI.

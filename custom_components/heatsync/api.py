@@ -65,6 +65,21 @@ class HeatSyncClient:
     async def diagnose(self) -> dict[str, Any]:
         return await self._get("/api/diagnose")
 
+    # ── Derived totals: cost / carbon / daily energy ────────────────────
+    # All three are firmware-computed running totals — the device tracks
+    # elec consumption per tariff bucket, integrates power * intensity,
+    # and persists daily totals across midnight. The coordinator polls
+    # these on a slower cadence (60 s) than /api/live; they don't move
+    # fast enough to justify 5-s refresh.
+    async def cost_status(self) -> dict[str, Any]:
+        return await self._get("/api/cost/status")
+
+    async def carbon_status(self) -> dict[str, Any]:
+        return await self._get("/api/carbon/status")
+
+    async def energy_daily(self) -> dict[str, Any]:
+        return await self._get("/api/energy/daily")
+
     # ── Control surface: /api/control/* (POST) ─────────────────────────
     # These mirror the buttons/sliders on the device's own dashboard.
     # Each takes its bounds-checked params and POSTs as form data.

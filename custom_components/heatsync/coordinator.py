@@ -38,6 +38,18 @@ _LOGGER = logging.getLogger(__name__)
 # heap, uptime, chip temp, WiFi RSSI move slowly. Poll every 30 s.
 DIAGNOSE_INTERVAL_SEC = 30
 
+# Derived totals (/api/cost/status + /api/carbon/status). Today's running
+# kWh / pence / gCO₂ move slowly enough — running averages over a day —
+# that minute-level cadence is plenty. Polling slower than this also
+# keeps the firmware's HTTPS budget for weather + carbon fetches free.
+EXTRAS_INTERVAL_SEC = 60
+
+# /api/energy/daily is historical (one entry per past day), only moves at
+# the midnight roll-over. Polling once an hour is generous — even daily
+# would be fine — but an hourly cadence keeps the "Yesterday" sensors
+# fresh shortly after midnight even if the user happens to be looking.
+DAILY_INTERVAL_SEC = 3600
+
 
 class HeatSyncCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Shared poller for the integration's HTTP API.
@@ -72,6 +84,14 @@ class HeatSyncCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # then which surfaces as Unavailable in HA — correct behaviour.
         self.system_data: dict[str, Any] = {}
         self._last_diag_at = 0.0
+        # Derived totals — today's kWh / pence / carbon. Merged blob:
+        #   {"cost": {…/api/cost/status…}, "carbon": {…/api/carbon/status…}}
+        # Lives under one dict so all the derived-sensor entities share
+        # a single "did the throttled fetch succeed yet?" availability
+        # signal. Empty until the first 60-s tick lands.
+        self.extras_data: dict[str, Any] = {}
+        self._last_extras_at = 0.0
+        self._last_daily_at = 0.0
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
@@ -95,6 +115,34 @@ class HeatSyncCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             except (HeatSyncConnectionError, HeatSyncAuthError):
                 # Keep the previous snapshot. Entities show Unavailable
                 # only if we never managed a first fetch.
+                pass
+
+        # Throttled extras fetch — cost + carbon, both small JSON blobs.
+        # Same failure semantics as diagnose: a single endpoint failing
+        # leaves the prior value visible rather than dropping all the
+        # derived sensors to Unavailable in lockstep.
+        if now - self._last_extras_at >= EXTRAS_INTERVAL_SEC:
+            self._last_extras_at = now
+            extras: dict[str, Any] = dict(self.extras_data)  # copy-on-write
+            try:
+                extras["cost"] = await self.client.cost_status()
+            except (HeatSyncConnectionError, HeatSyncAuthError):
+                pass
+            try:
+                extras["carbon"] = await self.client.carbon_status()
+            except (HeatSyncConnectionError, HeatSyncAuthError):
+                pass
+            self.extras_data = extras
+
+        # /api/energy/daily — hourly cadence, see DAILY_INTERVAL_SEC.
+        # Stashed under extras_data["daily"] so the yesterday-cluster
+        # sensors share a single fetch + availability gate.
+        if now - self._last_daily_at >= DAILY_INTERVAL_SEC:
+            self._last_daily_at = now
+            try:
+                daily = await self.client.energy_daily()
+                self.extras_data = {**self.extras_data, "daily": daily}
+            except (HeatSyncConnectionError, HeatSyncAuthError):
                 pass
 
         devices = raw.get("devices") or []
