@@ -20,17 +20,21 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     REVOLUTIONS_PER_MINUTE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
     UnitOfTemperature,
+    UnitOfTime,
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import DOMAIN
 from .coordinator import HeatSyncCoordinator
 from .entity import HeatSyncEntity
 
@@ -222,13 +226,27 @@ async def async_setup_entry(
     indoor  = next((a for a, d in coordinator.data.items() if d.get("type") == "indoor"), None)
     outdoor = next((a for a, d in coordinator.data.items() if d.get("type") == "outdoor"), None)
 
-    entities: list[HeatSyncSensor] = []
+    entities: list[SensorEntity] = []
     if indoor:
         for s in INDOOR_SENSORS:
             entities.append(HeatSyncSensor(coordinator, indoor, s))
     if outdoor:
         for s in OUTDOOR_SENSORS:
             entities.append(HeatSyncSensor(coordinator, outdoor, s))
+
+    # System-health entities — chip temp, WiFi quality, heap, uptime.
+    # Source: /api/diagnose system block (polled every 30 s by the
+    # coordinator). Independent of NASA bus state — work even if the
+    # bus is offline.
+    entities.extend([
+        ChipTempSensor(coordinator),
+        WifiQualitySensor(coordinator),
+        WifiRssiSensor(coordinator),
+        HeapFreeSensor(coordinator),
+        HeapLargestSensor(coordinator),
+        UptimeSensor(coordinator),
+    ])
+
     async_add_entities(entities)
 
 
@@ -250,3 +268,148 @@ class HeatSyncSensor(HeatSyncEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         return self.device.get(self._def.field)
+
+
+# ── System-health sensors (source: /api/diagnose system block) ────────
+# Each reads from `coordinator.system_data` rather than per-device
+# `coordinator.data[address]`. They live on the HeatSync HA device
+# card the same way as bus entities — same identifiers, just no NASA
+# address binding.
+
+class _SystemSensorBase(SensorEntity):
+    """Base for entities that read coordinator.system_data."""
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        self._coordinator = coordinator
+        # Same device identifiers as the bus entities (see entity.py)
+        # so all entities cluster under one HeatSync card in HA.
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.entry.unique_id or "unknown")},
+        )
+
+    @property
+    def available(self) -> bool:
+        # Only "available" once the first /api/diagnose poll has landed.
+        return bool(self._coordinator.system_data)
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to coordinator updates so HA refreshes us when new
+        # /api/diagnose data lands.
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class ChipTempSensor(_SystemSensorBase):
+    _attr_name = "Chip temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:thermometer-chevron-up"
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_chip_temp"
+
+    @property
+    def native_value(self) -> float | None:
+        return self._coordinator.system_data.get("chipTempC")
+
+
+class WifiRssiSensor(_SystemSensorBase):
+    """Raw dBm reading — for users who want the engineering value.
+    Default-disabled in favour of the percentage version below."""
+    _attr_name = "WiFi RSSI"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_wifi_rssi"
+
+    @property
+    def native_value(self) -> int | None:
+        v = self._coordinator.system_data.get("wifiRssi")
+        return int(v) if v is not None else None
+
+
+class WifiQualitySensor(_SystemSensorBase):
+    """WiFi signal as 0-100 %. Standard linear conversion:
+       -50 dBm → 100 %, -100 dBm → 0 %, linear between.
+       More intuitive than raw dBm; default-enabled."""
+    _attr_name = "WiFi signal"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:wifi"
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_wifi_quality"
+
+    @property
+    def native_value(self) -> int | None:
+        v = self._coordinator.system_data.get("wifiRssi")
+        if v is None:
+            return None
+        rssi = int(v)
+        if rssi >= -50:
+            return 100
+        if rssi <= -100:
+            return 0
+        return 2 * (rssi + 100)
+
+
+class HeapFreeSensor(_SystemSensorBase):
+    _attr_name = "Heap free"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "B"
+    _attr_icon = "mdi:memory"
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_heap_free"
+
+    @property
+    def native_value(self) -> int | None:
+        v = self._coordinator.system_data.get("heapFree")
+        return int(v) if v is not None else None
+
+
+class HeapLargestSensor(_SystemSensorBase):
+    _attr_name = "Heap largest block"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "B"
+    _attr_icon = "mdi:memory"
+    _attr_entity_registry_enabled_default = False  # diagnostic, opt-in
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_heap_largest"
+
+    @property
+    def native_value(self) -> int | None:
+        v = self._coordinator.system_data.get("heapLargestBlock")
+        return int(v) if v is not None else None
+
+
+class UptimeSensor(_SystemSensorBase):
+    _attr_name = "Uptime"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_icon = "mdi:clock-outline"
+
+    def __init__(self, coordinator: HeatSyncCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_uptime"
+
+    @property
+    def native_value(self) -> int | None:
+        v = self._coordinator.system_data.get("uptimeSec")
+        return int(v) if v is not None else None
